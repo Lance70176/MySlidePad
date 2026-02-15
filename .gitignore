@@ -1,5 +1,6 @@
 # Xcode build
 build/
+!build/build_dmg.sh
 DerivedData/
 *.xcarchive
 
