@@ -116,6 +116,8 @@ enum WebViewConfigurationFactory {
 }
 
 final class TabStore: ObservableObject {
+    static let shared = TabStore()
+
     @Published var tabs: [WebTab]
     @Published var selectedID: UUID {
         didSet { persistState() }
@@ -134,7 +136,7 @@ final class TabStore: ObservableObject {
         "https://chatgpt.com/"
     ]
 
-    init() {
+    private init() {
         if let restored = TabStore.restoreState(key: defaultsKey), restored.isEmpty == false {
             let restoredTabs = restored.compactMap { URL(string: $0) }.map { WebTab(url: $0) }
             if restoredTabs.isEmpty == false {

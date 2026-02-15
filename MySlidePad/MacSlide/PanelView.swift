@@ -10,7 +10,7 @@ import UniformTypeIdentifiers
 import WebKit
 
 struct PanelView: View {
-    @StateObject private var tabStore = TabStore()
+    @ObservedObject private var tabStore = TabStore.shared
 
     var body: some View {
         ZStack {
