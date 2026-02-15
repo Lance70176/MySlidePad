@@ -9,7 +9,7 @@ import Combine
 import Foundation
 import WebKit
 
-final class WebTab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
+final class WebTab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, WKScriptMessageHandler {
     let id = UUID()
     let webView: WKWebView
 
@@ -26,7 +26,34 @@ final class WebTab: NSObject, ObservableObject, Identifiable, WKNavigationDelega
         super.init()
         self.webView.navigationDelegate = self
         self.webView.uiDelegate = self
+        self.webView.configuration.userContentController.add(self, name: "blobDownload")
+        WebViewConfigurationFactory.installBlobDownloadHook(into: self.webView.configuration)
         self.webView.load(URLRequest(url: url))
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        NSLog("[MacSlide] blobDownload message received: %@", String(describing: type(of: message.body)))
+        guard message.name == "blobDownload",
+              let dict = message.body as? [String: String],
+              let base64 = dict["data"],
+              let filename = dict["filename"],
+              let data = Data(base64Encoded: base64) else {
+            NSLog("[MacSlide] blobDownload: failed to parse message")
+            return
+        }
+        NSLog("[MacSlide] blobDownload: saving %@ (%d bytes)", filename, data.count)
+
+        let savePanel = NSSavePanel()
+        savePanel.nameFieldStringValue = filename
+        savePanel.canCreateDirectories = true
+        savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        savePanel.level = .floating + 1
+        NSApp.activate(ignoringOtherApps: true)
+        let result = savePanel.runModal()
+        if result == .OK, let url = savePanel.url {
+            try? data.write(to: url)
+            NSLog("[MacSlide] blobDownload: saved to %@", url.path)
+        }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -78,6 +105,60 @@ final class WebTab: NSObject, ObservableObject, Identifiable, WKNavigationDelega
             }
         }
     }
+
+    // MARK: - Download handling
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, preferences: WKWebpagePreferences, decisionHandler: @escaping (WKNavigationActionPolicy, WKWebpagePreferences) -> Void) {
+        NSLog("[MacSlide] navigationAction: url=%@ shouldDownload=%d", navigationAction.request.url?.absoluteString ?? "nil", navigationAction.shouldPerformDownload ? 1 : 0)
+        if navigationAction.shouldPerformDownload {
+            decisionHandler(.download, preferences)
+        } else {
+            decisionHandler(.allow, preferences)
+        }
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+        let mime = navigationResponse.response.mimeType ?? "unknown"
+        NSLog("[MacSlide] navigationResponse: url=%@ mime=%@ canShow=%d", navigationResponse.response.url?.absoluteString ?? "nil", mime, navigationResponse.canShowMIMEType ? 1 : 0)
+        if navigationResponse.canShowMIMEType {
+            decisionHandler(.allow)
+        } else {
+            decisionHandler(.download)
+        }
+    }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        NSLog("[MacSlide] navigationAction didBecome download: %@", download.originalRequest?.url?.absoluteString ?? "nil")
+        download.delegate = self
+    }
+
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        NSLog("[MacSlide] navigationResponse didBecome download: %@", download.originalRequest?.url?.absoluteString ?? "nil")
+        download.delegate = self
+    }
+
+    func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
+        NSLog("[MacSlide] decideDestination: filename=%@ url=%@", suggestedFilename, response.url?.absoluteString ?? "nil")
+        let savePanel = NSSavePanel()
+        savePanel.nameFieldStringValue = suggestedFilename
+        savePanel.canCreateDirectories = true
+        savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        savePanel.level = .floating + 1
+        NSApp.activate(ignoringOtherApps: true)
+        let result = savePanel.runModal()
+        if result == .OK, let url = savePanel.url {
+            try? FileManager.default.removeItem(at: url)
+            completionHandler(url)
+        } else {
+            completionHandler(nil)
+        }
+    }
+
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+    }
+
+    func downloadDidFinish(_ download: WKDownload) {
+    }
 }
 
 enum WebViewConfigurationFactory {
@@ -108,6 +189,56 @@ enum WebViewConfigurationFactory {
         }
         let script = WKUserScript(
             source: imeGuardScript,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false
+        )
+        controller.addUserScript(script)
+    }
+
+    private static let blobDownloadScript = """
+    (function() {
+        if (window.__blobDownloadHooked) return;
+        window.__blobDownloadHooked = true;
+        const origCreate = URL.createObjectURL;
+        const blobMap = new Map();
+        URL.createObjectURL = function(obj) {
+            const url = origCreate.call(URL, obj);
+            if (obj instanceof Blob) blobMap.set(url, obj);
+            return url;
+        };
+        const origRevoke = URL.revokeObjectURL;
+        URL.revokeObjectURL = function(url) {
+            blobMap.delete(url);
+            return origRevoke.call(URL, url);
+        };
+        const origClick = HTMLAnchorElement.prototype.click;
+        HTMLAnchorElement.prototype.click = function() {
+            const href = this.href || '';
+            if (href.startsWith('blob:') || this.hasAttribute('download')) {
+                const blob = blobMap.get(href);
+                if (blob) {
+                    const filename = this.download || 'download';
+                    const reader = new FileReader();
+                    reader.onload = function() {
+                        const base64 = reader.result.split(',')[1];
+                        window.webkit.messageHandlers.blobDownload.postMessage({data: base64, filename: filename});
+                    };
+                    reader.readAsDataURL(blob);
+                    return;
+                }
+            }
+            return origClick.call(this);
+        };
+    })();
+    """
+
+    static func installBlobDownloadHook(into configuration: WKWebViewConfiguration) {
+        let controller = configuration.userContentController
+        if controller.userScripts.contains(where: { $0.source == blobDownloadScript }) {
+            return
+        }
+        let script = WKUserScript(
+            source: blobDownloadScript,
             injectionTime: .atDocumentStart,
             forMainFrameOnly: false
         )
