@@ -303,9 +303,25 @@ private struct StartPageView: View {
     @State private var address: String = ""
     @State private var favoriteInput: String = ""
     @State private var showResetConfirm = false
+    @State private var showSettings = false
 
     var body: some View {
         VStack(spacing: 18) {
+            HStack {
+                Spacer()
+                Button {
+                    showSettings.toggle()
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .popover(isPresented: $showSettings, arrowEdge: .bottom) {
+                    SettingsPopover()
+                }
+            }
+
             VStack(spacing: 10) {
                 Text("New Tab")
                     .font(.system(size: 22, weight: .semibold))
@@ -368,6 +384,48 @@ private struct StartPageView: View {
             Spacer()
         }
         .padding(EdgeInsets(top: 30, leading: 30, bottom: 30, trailing: 24))
+    }
+}
+
+private struct SettingsPopover: View {
+    @AppStorage("MacSlide.GeminiCategoriesEnabled") private var geminiEnabled = true
+    @AppStorage("MacSlide.ChatGPTCategoriesEnabled") private var chatGPTEnabled = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("智能分類設定")
+                .font(.system(size: 13, weight: .semibold))
+
+            Text("變更後需重新載入頁面才會生效")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+
+            Divider()
+
+            Toggle(isOn: $geminiEnabled) {
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkle")
+                        .font(.system(size: 11))
+                    Text("Gemini 智能分類")
+                        .font(.system(size: 12))
+                }
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+
+            Toggle(isOn: $chatGPTEnabled) {
+                HStack(spacing: 6) {
+                    Image(systemName: "bubble.left.and.bubble.right")
+                        .font(.system(size: 11))
+                    Text("ChatGPT 智能分類")
+                        .font(.system(size: 12))
+                }
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+        }
+        .padding(14)
+        .frame(width: 240)
     }
 }
 

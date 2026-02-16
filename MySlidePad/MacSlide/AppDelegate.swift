@@ -13,6 +13,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var edgeMonitor: EdgeMonitor?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Register default settings (both categories enabled by default)
+        UserDefaults.standard.register(defaults: [
+            "MacSlide.GeminiCategoriesEnabled": true,
+            "MacSlide.ChatGPTCategoriesEnabled": true
+        ])
+
         NSApplication.shared.setActivationPolicy(.accessory)
         panelController.prepare()
 

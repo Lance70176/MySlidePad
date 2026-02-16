@@ -37,8 +37,12 @@ final class WebTab: NSObject, ObservableObject, Identifiable, WKNavigationDelega
         self.webView.configuration.userContentController.add(self, name: "geminiCategories")
         self.webView.configuration.userContentController.add(self, name: "chatgptCategories")
         WebViewConfigurationFactory.installBlobDownloadHook(into: self.webView.configuration)
-        WebViewConfigurationFactory.installGeminiSidebarScript(into: self.webView.configuration)
-        WebViewConfigurationFactory.installChatGPTSidebarScript(into: self.webView.configuration)
+        if UserDefaults.standard.bool(forKey: "MacSlide.GeminiCategoriesEnabled") {
+            WebViewConfigurationFactory.installGeminiSidebarScript(into: self.webView.configuration)
+        }
+        if UserDefaults.standard.bool(forKey: "MacSlide.ChatGPTCategoriesEnabled") {
+            WebViewConfigurationFactory.installChatGPTSidebarScript(into: self.webView.configuration)
+        }
         self.webView.load(URLRequest(url: url))
     }
 
@@ -1780,7 +1784,11 @@ enum WebViewConfigurationFactory {
         // ── Manage Categories Modal ──
         // ══════════════════════════════════════
         let modalOverlay = null;
-        function closeAnyModal() { if (modalOverlay) { modalOverlay.remove(); modalOverlay = null; } }
+        let shiftCleanup = null;
+        function closeAnyModal() {
+            if (modalOverlay) { modalOverlay.remove(); modalOverlay = null; }
+            if (shiftCleanup) { shiftCleanup(); shiftCleanup = null; }
+        }
 
         function showManageModal() {
             closeAnyModal();
@@ -1879,6 +1887,15 @@ enum WebViewConfigurationFactory {
 
             const selected = new Set();
             let lastClickedIdx = -1; // for Shift+Click range selection
+            let shiftHeld = false;
+            const onKeyDown = (e) => { if (e.key === 'Shift') shiftHeld = true; };
+            const onKeyUp = (e) => { if (e.key === 'Shift') shiftHeld = false; };
+            document.addEventListener('keydown', onKeyDown, true);
+            document.addEventListener('keyup', onKeyUp, true);
+            shiftCleanup = () => {
+                document.removeEventListener('keydown', onKeyDown, true);
+                document.removeEventListener('keyup', onKeyUp, true);
+            };
 
             const selAllRow = document.createElement('div'); selAllRow.className = 'cgpt-del-selall';
             const selAllCb = document.createElement('input'); selAllCb.type = 'checkbox'; selAllCb.className = 'cgpt-del-cb';
@@ -1906,34 +1923,17 @@ enum WebViewConfigurationFactory {
                 const titleSpan = document.createElement('span'); titleSpan.className = 'cgpt-del-title'; titleSpan.textContent = conv.title; titleSpan.title = conv.title;
                 const catSpan = document.createElement('span'); catSpan.className = 'cgpt-del-cat'; catSpan.textContent = conv.category;
                 row.appendChild(cb); row.appendChild(titleSpan); row.appendChild(catSpan);
-                cb.addEventListener('change', () => {
-                    if (cb.checked) { selected.add(idx); row.classList.add('selected'); }
-                    else { selected.delete(idx); row.classList.remove('selected'); }
-                    updateCount();
-                });
+                cb.addEventListener('click', e => { e.preventDefault(); }); // we handle toggle ourselves
                 row.addEventListener('click', e => {
-                    if (e.target === cb) {
-                        // Shift+Click on checkbox itself
-                        if (e.shiftKey && lastClickedIdx >= 0 && lastClickedIdx !== idx) {
-                            const from = Math.min(lastClickedIdx, idx);
-                            const to = Math.max(lastClickedIdx, idx);
-                            for (let i = from; i <= to; i++) setChecked(i, true);
-                            updateCount();
-                        }
-                        lastClickedIdx = idx;
-                        return;
-                    }
-                    // Shift+Click on row
-                    if (e.shiftKey && lastClickedIdx >= 0 && lastClickedIdx !== idx) {
+                    if (shiftHeld && lastClickedIdx >= 0 && lastClickedIdx !== idx) {
                         const from = Math.min(lastClickedIdx, idx);
                         const to = Math.max(lastClickedIdx, idx);
                         for (let i = from; i <= to; i++) setChecked(i, true);
-                        updateCount();
                     } else {
-                        cb.checked = !cb.checked;
-                        cb.dispatchEvent(new Event('change'));
+                        setChecked(idx, !cb.checked);
                     }
                     lastClickedIdx = idx;
+                    updateCount();
                 });
                 list.appendChild(row);
                 rowEls.push({ row, cb });
@@ -1977,26 +1977,42 @@ enum WebViewConfigurationFactory {
             const indices = Array.from(selected).sort((a, b) => b - a);
             const total = indices.length;
 
-            // Close the modal overlay first so we can interact with the sidebar
-            closeAnyModal();
+            // Keep modal open but replace content with progress UI
+            const modal = modalOverlay ? modalOverlay.querySelector('.cgpt-modal') : null;
+            if (!modal) { closeAnyModal(); return; }
 
-            // Create a small floating status bar instead
-            const statusBar = document.createElement('div');
-            statusBar.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#2d2d2d;color:#fff;padding:10px 20px;border-radius:10px;z-index:999999;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,0.3);display:flex;align-items:center;gap:10px;font-family:-apple-system,sans-serif';
-            const statusText = document.createElement('span');
+            // Clear modal content and show progress
+            modal.innerHTML = '';
+            modal.style.maxWidth = '480px';
+            const progTitle = document.createElement('h2');
+            progTitle.textContent = '正在刪除...';
+            modal.appendChild(progTitle);
+
+            const statusText = document.createElement('div');
+            statusText.style.cssText = 'font-size:13px;color:rgba(255,255,255,0.8);margin:16px 0;min-height:20px';
+            modal.appendChild(statusText);
+
+            const progressBar = document.createElement('div');
+            progressBar.style.cssText = 'width:100%;height:4px;background:rgba(255,255,255,0.1);border-radius:2px;overflow:hidden;margin-bottom:16px';
+            const progressFill = document.createElement('div');
+            progressFill.style.cssText = 'height:100%;background:#10a37f;border-radius:2px;transition:width 0.3s;width:0%';
+            progressBar.appendChild(progressFill);
+            modal.appendChild(progressBar);
+
+            const footer = document.createElement('div'); footer.className = 'cgpt-modal-footer';
             const cancelBtnFloat = document.createElement('button');
+            cancelBtnFloat.className = 'cgpt-btn cgpt-btn-secondary';
             cancelBtnFloat.textContent = '取消';
-            cancelBtnFloat.style.cssText = 'background:rgba(255,255,255,0.15);border:none;color:#fff;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px';
             cancelBtnFloat.addEventListener('click', () => { batchDeleteCancelled = true; });
-            statusBar.appendChild(statusText);
-            statusBar.appendChild(cancelBtnFloat);
-            document.body.appendChild(statusBar);
+            footer.appendChild(cancelBtnFloat);
+            modal.appendChild(footer);
 
             let done = 0;
             for (const idx of indices) {
                 if (batchDeleteCancelled) break;
                 const conv = convData[idx];
                 statusText.innerHTML = '<span class="cgpt-spinner"></span>正在刪除 (' + (done + 1) + '/' + total + '): ' + conv.title;
+                progressFill.style.width = Math.round(((done + 1) / total) * 100) + '%';
                 try {
                     await deleteOneChatGPTConversation(conv.convId, conv.el);
                     done++;
@@ -2008,14 +2024,16 @@ enum WebViewConfigurationFactory {
                 await sleep(400);
             }
             saveToSwift();
+            progressFill.style.width = '100%';
             if (batchDeleteCancelled) {
-                statusText.textContent = '已取消，成功刪除 ' + done + ' 個對話';
+                progTitle.textContent = '已取消';
+                statusText.textContent = '成功刪除 ' + done + ' 個對話';
             } else {
+                progTitle.textContent = '刪除完成';
                 statusText.textContent = '已刪除 ' + done + ' 個對話';
             }
-            cancelBtnFloat.textContent = '關閉';
-            cancelBtnFloat.onclick = () => { statusBar.remove(); applyFilter(); };
-            setTimeout(() => { statusBar.remove(); applyFilter(); }, 3000);
+            cancelBtnFloat.textContent = '完成';
+            cancelBtnFloat.onclick = () => { closeAnyModal(); applyFilter(); };
         }
 
         function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
