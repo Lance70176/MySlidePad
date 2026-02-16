@@ -770,11 +770,15 @@ enum WebViewConfigurationFactory {
             overlay.addEventListener('click',e=>{ if(e.target===overlay) closeAnyModal(); });
             const modal=document.createElement('div'); modal.className='gsc-modal';
             modal.style.maxWidth='480px';
-            const title=document.createElement('h2'); title.textContent='批量刪除對話'; modal.appendChild(title);
+            const title=document.createElement('h2');
+            title.textContent=currentFilter===ALL_LABEL?'批量刪除對話':'批量刪除對話 — '+currentFilter;
+            modal.appendChild(title);
 
             const desc=document.createElement('div');
             desc.style.cssText='font-size:12px;color:var(--gsc-menu-dim,rgba(0,0,0,0.5));margin-bottom:10px';
-            desc.textContent='勾選要刪除的對話，點擊「刪除選取」執行。刪除後無法復原。';
+            desc.textContent=currentFilter===ALL_LABEL
+                ?'勾選要刪除的對話，點擊「刪除選取」執行。刪除後無法復原。'
+                :'僅顯示「'+currentFilter+'」分類的對話。勾選要刪除的對話，點擊「刪除選取」執行。刪除後無法復原。';
             modal.appendChild(desc);
 
             const items=getConvItems();
@@ -782,6 +786,7 @@ enum WebViewConfigurationFactory {
             items.forEach(item=>{
                 const t=getConvTitle(item); if(!t) return;
                 const cat=classifyTitle(t);
+                if(currentFilter!==ALL_LABEL && cat!==currentFilter) return;
                 const btn=item.querySelector('button.conversation-actions-menu-button');
                 convData.push({title:t, category:cat, menuBtn:btn, el:item});
             });
