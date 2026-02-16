@@ -204,18 +204,41 @@ private struct WebContent: View {
 private struct TabContent: View {
     @ObservedObject var tabStore: TabStore
     @ObservedObject var tab: WebTab
+    @State private var addressText: String = ""
+    @FocusState private var isAddressFocused: Bool
 
     var body: some View {
         if tab.url.scheme == "about" {
             StartPageView(tabStore: tabStore, tab: tab)
         } else {
-            ZStack(alignment: .topTrailing) {
+            VStack(spacing: 0) {
+                HStack(spacing: 6) {
+                    Image(systemName: "globe")
+                        .foregroundStyle(.secondary)
+                        .font(.system(size: 11))
+                    TextField("URL", text: $addressText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .focused($isAddressFocused)
+                        .onSubmit {
+                            tabStore.openURL(addressText, in: tab)
+                            isAddressFocused = false
+                        }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.white.opacity(0.08))
+
+                Divider()
+
                 WebViewRepresentable(webView: tab.webView)
                     .id(tab.id)
-
-                VStack(alignment: .trailing, spacing: 8) {
+            }
+            .onAppear { addressText = tab.url.absoluteString }
+            .onChange(of: tab.url) { newURL in
+                if !isAddressFocused {
+                    addressText = newURL.absoluteString
                 }
-                .padding(8)
             }
         }
     }
