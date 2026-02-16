@@ -133,7 +133,26 @@ private struct TabButton: View {
 
     @ViewBuilder
     private var faviconView: some View {
-        if let url = faviconURL(for: tab.url) {
+        if let realFavicon = tab.faviconURL {
+            AsyncImage(url: realFavicon) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 18, height: 18)
+                default:
+                    fallbackFaviconView
+                }
+            }
+        } else {
+            fallbackFaviconView
+        }
+    }
+
+    @ViewBuilder
+    private var fallbackFaviconView: some View {
+        if let url = duckDuckGoFaviconURL(for: tab.url) {
             AsyncImage(url: url) { phase in
                 switch phase {
                 case .success(let image):
@@ -154,7 +173,7 @@ private struct TabButton: View {
         }
     }
 
-    private func faviconURL(for url: URL) -> URL? {
+    private func duckDuckGoFaviconURL(for url: URL) -> URL? {
         guard let host = url.host, url.scheme != "about" else { return nil }
         return URL(string: "https://icons.duckduckgo.com/ip3/\(host).ico")
     }
@@ -205,6 +224,8 @@ private struct TabContent: View {
     @ObservedObject var tabStore: TabStore
     @ObservedObject var tab: WebTab
     @State private var addressText: String = ""
+    @State private var showCacheMenu: Bool = false
+    @State private var forceClearCache: Bool = WebTab.forceClearCache
     @FocusState private var isAddressFocused: Bool
 
     var body: some View {
@@ -224,6 +245,38 @@ private struct TabContent: View {
                             tabStore.openURL(addressText, in: tab)
                             isAddressFocused = false
                         }
+
+                    Button {
+                        showCacheMenu.toggle()
+                    } label: {
+                        Image(systemName: forceClearCache ? "arrow.clockwise.circle.fill" : "arrow.clockwise.circle")
+                            .font(.system(size: 13))
+                            .foregroundStyle(forceClearCache ? .blue : .secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .popover(isPresented: $showCacheMenu, arrowEdge: .bottom) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("載入設定")
+                                .font(.system(size: 13, weight: .semibold))
+
+                            Toggle(isOn: $forceClearCache) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("強制清除緩存")
+                                        .font(.system(size: 12))
+                                    Text("每次載入頁面時清除快取")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .toggleStyle(.switch)
+                            .controlSize(.small)
+                            .onChange(of: forceClearCache) { newValue in
+                                WebTab.forceClearCache = newValue
+                            }
+                        }
+                        .padding(12)
+                        .frame(width: 220)
+                    }
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
