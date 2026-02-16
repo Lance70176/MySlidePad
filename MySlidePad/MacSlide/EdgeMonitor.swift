@@ -121,14 +121,44 @@ final class EdgeMonitor {
         let frame = screen.visibleFrame
         switch edge {
         case .left:
+            guard !hasAdjacentScreen(on: .left, of: screen) else { return false }
             return mouse.x <= frame.minX + threshold
         case .right:
+            guard !hasAdjacentScreen(on: .right, of: screen) else { return false }
             return mouse.x >= frame.maxX - threshold
         case .top:
+            guard !hasAdjacentScreen(on: .top, of: screen) else { return false }
             return mouse.y >= frame.maxY - threshold
         case .bottom:
+            guard !hasAdjacentScreen(on: .bottom, of: screen) else { return false }
             return mouse.y <= frame.minY + threshold
         }
+    }
+
+    /// Returns true if another screen is adjacent on the given side, meaning
+    /// the edge is shared between two monitors rather than being a true outer edge.
+    private func hasAdjacentScreen(on side: ScreenEdge, of screen: NSScreen) -> Bool {
+        let f = screen.frame
+        let tolerance: CGFloat = 1
+        for other in NSScreen.screens where other !== screen {
+            let o = other.frame
+            switch side {
+            case .right:
+                // Another screen's left edge touches this screen's right edge
+                if abs(o.minX - f.maxX) <= tolerance,
+                   o.minY < f.maxY, o.maxY > f.minY { return true }
+            case .left:
+                if abs(f.minX - o.maxX) <= tolerance,
+                   o.minY < f.maxY, o.maxY > f.minY { return true }
+            case .top:
+                if abs(o.minY - f.maxY) <= tolerance,
+                   o.minX < f.maxX, o.maxX > f.minX { return true }
+            case .bottom:
+                if abs(f.minY - o.maxY) <= tolerance,
+                   o.minX < f.maxX, o.maxX > f.minX { return true }
+            }
+        }
+        return false
     }
 
     private func shouldTrigger() -> Bool {
