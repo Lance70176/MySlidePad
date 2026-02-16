@@ -213,6 +213,7 @@ final class WebTab: NSObject, ObservableObject, Identifiable, WKNavigationDelega
         if let currentURL = webView.url {
             self.url = currentURL
             self.title = currentURL.host ?? currentURL.absoluteString
+            self.faviconURL = nil
             updateLoginRequirement(for: currentURL)
             onURLChange?()
         }
