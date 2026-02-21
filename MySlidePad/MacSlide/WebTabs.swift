@@ -9,6 +9,14 @@ import Combine
 import Foundation
 import WebKit
 
+private final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
+    weak var delegate: WKScriptMessageHandler?
+    init(delegate: WKScriptMessageHandler) { self.delegate = delegate }
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        delegate?.userContentController(controller, didReceive: message)
+    }
+}
+
 final class WebTab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, WKScriptMessageHandler {
     let id = UUID()
     let webView: WKWebView
@@ -33,9 +41,10 @@ final class WebTab: NSObject, ObservableObject, Identifiable, WKNavigationDelega
         super.init()
         self.webView.navigationDelegate = self
         self.webView.uiDelegate = self
-        self.webView.configuration.userContentController.add(self, name: "blobDownload")
-        self.webView.configuration.userContentController.add(self, name: "geminiCategories")
-        self.webView.configuration.userContentController.add(self, name: "chatgptCategories")
+        let handler = WeakScriptMessageHandler(delegate: self)
+        self.webView.configuration.userContentController.add(handler, name: "blobDownload")
+        self.webView.configuration.userContentController.add(handler, name: "geminiCategories")
+        self.webView.configuration.userContentController.add(handler, name: "chatgptCategories")
         WebViewConfigurationFactory.installBlobDownloadHook(into: self.webView.configuration)
         if UserDefaults.standard.bool(forKey: "MacSlide.GeminiCategoriesEnabled") {
             WebViewConfigurationFactory.installGeminiSidebarScript(into: self.webView.configuration)
@@ -44,6 +53,13 @@ final class WebTab: NSObject, ObservableObject, Identifiable, WKNavigationDelega
             WebViewConfigurationFactory.installChatGPTSidebarScript(into: self.webView.configuration)
         }
         self.webView.load(URLRequest(url: url))
+    }
+
+    deinit {
+        webView.stopLoading()
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "blobDownload")
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "geminiCategories")
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "chatgptCategories")
     }
 
     private static let geminiCategoriesKey = "MacSlide.GeminiCategories"
@@ -227,6 +243,10 @@ final class WebTab: NSObject, ObservableObject, Identifiable, WKNavigationDelega
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
         WebViewConfigurationFactory.installIMEGuard(into: configuration)
         return PopupWindowController.shared.openPopup(with: configuration, url: navigationAction.request.url)
+    }
+
+    func webViewDidClose(_ webView: WKWebView) {
+        PopupWindowController.shared.closePopup(containing: webView)
     }
 
     func webView(_ webView: WKWebView,
@@ -2396,6 +2416,9 @@ final class TabStore: ObservableObject {
 
     func close(tab: WebTab) {
         guard tabs.count > 1 else { return }
+        tab.webView.stopLoading()
+        tab.webView.loadHTMLString("", baseURL: nil)
+        tab.onURLChange = nil
         tabs.removeAll { $0.id == tab.id }
         if selectedID == tab.id, let first = tabs.first {
             selectedID = first.id

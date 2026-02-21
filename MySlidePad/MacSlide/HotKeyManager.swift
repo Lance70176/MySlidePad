@@ -20,6 +20,7 @@ struct HotKeyCombo {
 
 final class HotKeyManager {
     private var hotKeyRef: EventHotKeyRef?
+    private var eventHandlerRef: EventHandlerRef?
     private let handler: () -> Void
 
     init(keyCombo: HotKeyCombo, handler: @escaping () -> Void) {
@@ -28,8 +29,13 @@ final class HotKeyManager {
     }
 
     func invalidate() {
+        if let eventHandlerRef {
+            RemoveEventHandler(eventHandlerRef)
+            self.eventHandlerRef = nil
+        }
         if let hotKeyRef {
             UnregisterEventHotKey(hotKeyRef)
+            self.hotKeyRef = nil
         }
     }
 
@@ -52,6 +58,6 @@ final class HotKeyManager {
             let manager = Unmanaged<HotKeyManager>.fromOpaque(userData).takeUnretainedValue()
             manager.handler()
             return noErr
-        }, 1, &eventType, UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()), nil)
+        }, 1, &eventType, UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()), &eventHandlerRef)
     }
 }

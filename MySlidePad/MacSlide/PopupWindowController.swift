@@ -11,7 +11,7 @@ import WebKit
 
 final class PopupWindowController {
     static let shared = PopupWindowController()
-    private var panels: [NSPanel] = []
+    private var entries: [(panel: NSPanel, webView: WKWebView, observer: NSObjectProtocol)] = []
 
     func openPopup(with configuration: WKWebViewConfiguration, url: URL?) -> WKWebView {
         let webView = ZoomingWebView(frame: .zero, configuration: configuration)
@@ -36,12 +36,23 @@ final class PopupWindowController {
         panel.center()
         panel.makeKeyAndOrderFront(nil)
 
-        panels.append(panel)
-        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: panel, queue: .main) { [weak self] _ in
-            self?.panels.removeAll { $0 === panel }
+        let observer = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: panel, queue: .main) { [weak self] _ in
+            webView.loadHTMLString("", baseURL: nil)
+            if let idx = self?.entries.firstIndex(where: { $0.panel === panel }) {
+                let entry = self?.entries.remove(at: idx)
+                if let obs = entry?.observer {
+                    NotificationCenter.default.removeObserver(obs)
+                }
+            }
         }
+        entries.append((panel: panel, webView: webView, observer: observer))
 
         return webView
+    }
+
+    func closePopup(containing webView: WKWebView) {
+        guard let entry = entries.first(where: { $0.webView === webView }) else { return }
+        entry.panel.close()
     }
 }
 
@@ -50,6 +61,7 @@ private struct PopupContentView: View {
     let closePanel: () -> Void
     @State private var addressText: String = ""
     @State private var showToolbar = true
+    @State private var urlTimer: Timer?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -110,6 +122,10 @@ private struct PopupContentView: View {
             updateAddress()
             startURLObservation()
         }
+        .onDisappear {
+            urlTimer?.invalidate()
+            urlTimer = nil
+        }
     }
 
     private func navigateTo(_ raw: String) {
@@ -133,8 +149,7 @@ private struct PopupContentView: View {
     }
 
     private func startURLObservation() {
-        // Poll for URL changes since we can't use KVO easily in SwiftUI
-        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+        urlTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
             DispatchQueue.main.async {
                 updateAddress()
             }
