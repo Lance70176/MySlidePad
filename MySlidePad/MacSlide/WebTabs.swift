@@ -806,7 +806,11 @@ enum WebViewConfigurationFactory {
         // ── Manage Categories Modal ──
         // ══════════════════════════════════════
         let modalOverlay = null;
-        function closeAnyModal(){ if(modalOverlay){modalOverlay.remove();modalOverlay=null;} }
+        let shiftCleanup=null;
+        function closeAnyModal(){
+            if(modalOverlay){modalOverlay.remove();modalOverlay=null;}
+            if(shiftCleanup){shiftCleanup();shiftCleanup=null;}
+        }
 
         function showManageModal(){
             closeAnyModal();
@@ -911,6 +915,16 @@ enum WebViewConfigurationFactory {
             });
 
             const selected=new Set();
+            let lastClickedIdx=-1;
+            let shiftHeld=false;
+            const onKeyDown=(e)=>{if(e.key==='Shift') shiftHeld=true;};
+            const onKeyUp=(e)=>{if(e.key==='Shift') shiftHeld=false;};
+            document.addEventListener('keydown',onKeyDown,true);
+            document.addEventListener('keyup',onKeyUp,true);
+            shiftCleanup=()=>{
+                document.removeEventListener('keydown',onKeyDown,true);
+                document.removeEventListener('keyup',onKeyUp,true);
+            };
 
             // Select all row
             const selAllRow=document.createElement('div'); selAllRow.className='gsc-del-selall';
@@ -926,6 +940,13 @@ enum WebViewConfigurationFactory {
             const list=document.createElement('div'); list.className='gsc-del-list';
             const rowEls=[];
 
+            function setChecked(idx,checked){
+                const {row,cb}=rowEls[idx];
+                cb.checked=checked;
+                if(checked){selected.add(idx);row.classList.add('selected');}
+                else{selected.delete(idx);row.classList.remove('selected');}
+            }
+
             convData.forEach((conv,idx)=>{
                 const row=document.createElement('div'); row.className='gsc-del-row';
                 const cb=document.createElement('input'); cb.type='checkbox'; cb.className='gsc-del-cb'; cb.dataset.idx=idx;
@@ -933,15 +954,17 @@ enum WebViewConfigurationFactory {
                 const catSpan=document.createElement('span'); catSpan.className='gsc-del-cat'; catSpan.textContent=conv.category;
                 row.appendChild(cb); row.appendChild(titleSpan); row.appendChild(catSpan);
 
-                cb.addEventListener('change',()=>{
-                    if(cb.checked){ selected.add(idx); row.classList.add('selected'); }
-                    else{ selected.delete(idx); row.classList.remove('selected'); }
-                    updateCount();
-                });
+                cb.addEventListener('click',e=>{e.preventDefault();});
                 row.addEventListener('click',e=>{
-                    if(e.target===cb) return;
-                    cb.checked=!cb.checked;
-                    cb.dispatchEvent(new Event('change'));
+                    if(shiftHeld && lastClickedIdx>=0 && lastClickedIdx!==idx){
+                        const from=Math.min(lastClickedIdx,idx);
+                        const to=Math.max(lastClickedIdx,idx);
+                        for(let i=from;i<=to;i++) setChecked(i,true);
+                    } else {
+                        setChecked(idx,!cb.checked);
+                    }
+                    lastClickedIdx=idx;
+                    updateCount();
                 });
                 list.appendChild(row);
                 rowEls.push({row,cb});
