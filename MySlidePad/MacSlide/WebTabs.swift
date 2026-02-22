@@ -212,7 +212,9 @@ final class WebTab: NSObject, ObservableObject, Identifiable, WKNavigationDelega
         webView.evaluateJavaScript(js) { [weak self] result, _ in
             guard let self = self, let href = result as? String, !href.isEmpty else { return }
             let resolved: URL?
-            if href.hasPrefix("http://") || href.hasPrefix("https://") {
+            if href.hasPrefix("data:") {
+                resolved = URL(string: href)
+            } else if href.hasPrefix("http://") || href.hasPrefix("https://") {
                 resolved = URL(string: href)
             } else if href.hasPrefix("//") {
                 resolved = URL(string: "https:" + href)

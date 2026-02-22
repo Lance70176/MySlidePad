@@ -134,20 +134,47 @@ private struct TabButton: View {
     @ViewBuilder
     private var faviconView: some View {
         if let realFavicon = tab.faviconURL {
-            AsyncImage(url: realFavicon) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 18, height: 18)
-                default:
-                    fallbackFaviconView
+            if realFavicon.scheme == "data", let emoji = Self.emojiFromSVGDataURI(realFavicon.absoluteString) {
+                Text(emoji)
+                    .font(.system(size: 14))
+                    .frame(width: 18, height: 18)
+            } else if realFavicon.scheme == "data", let nsImage = NSImage.fromDataURI(realFavicon.absoluteString) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 18, height: 18)
+            } else {
+                AsyncImage(url: realFavicon) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 18, height: 18)
+                    default:
+                        fallbackFaviconView
+                    }
                 }
             }
         } else {
             fallbackFaviconView
         }
+    }
+
+    private static func emojiFromSVGDataURI(_ uri: String) -> String? {
+        guard uri.hasPrefix("data:image/svg+xml") else { return nil }
+        guard let commaRange = uri.range(of: ",") else { return nil }
+        var decoded = String(uri[commaRange.upperBound...])
+        while let next = decoded.removingPercentEncoding, next != decoded {
+            decoded = next
+        }
+        // Extract text content between <text...> and </text>
+        guard let openRange = decoded.range(of: ">", range: decoded.range(of: "<text")!.upperBound..<decoded.endIndex),
+              let closeRange = decoded.range(of: "</text>") else { return nil }
+        let content = String(decoded[openRange.upperBound..<closeRange.lowerBound])
+        // Only return if it's purely emoji
+        guard !content.isEmpty, content.unicodeScalars.allSatisfy({ $0.properties.isEmoji }) else { return nil }
+        return content
     }
 
     @ViewBuilder
@@ -493,5 +520,24 @@ private struct FavoriteTile: View {
     private func faviconURL(for raw: String) -> URL? {
         guard let host = URL(string: raw)?.host else { return nil }
         return URL(string: "https://icons.duckduckgo.com/ip3/\(host).ico")
+    }
+}
+
+extension NSImage {
+    static func fromDataURI(_ uri: String) -> NSImage? {
+        if let dataRange = uri.range(of: ";base64,") {
+            let base64 = String(uri[dataRange.upperBound...])
+            guard let data = Data(base64Encoded: base64) else { return nil }
+            return NSImage(data: data)
+        } else if let commaRange = uri.range(of: ",") {
+            // Plain data URI — URL(string:) may double-encode, so decode repeatedly
+            var decoded = String(uri[commaRange.upperBound...])
+            while let next = decoded.removingPercentEncoding, next != decoded {
+                decoded = next
+            }
+            guard let data = decoded.data(using: .utf8) else { return nil }
+            return NSImage(data: data)
+        }
+        return nil
     }
 }
