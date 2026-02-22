@@ -399,7 +399,7 @@ private struct StartPageView: View {
 
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
                     ForEach(tabStore.favorites, id: \.self) { item in
-                        FavoriteTile(urlString: item) {
+                        FavoriteTile(urlString: item, cachedFaviconURL: tabStore.tabs.first(where: { $0.url.absoluteString == item })?.faviconURL) {
                             tabStore.openURL(item, in: tab)
                         } onDelete: {
                             tabStore.removeFavorite(item)
@@ -458,6 +458,7 @@ private struct SettingsPopover: View {
 
 private struct FavoriteTile: View {
     let urlString: String
+    var cachedFaviconURL: URL? = nil
     let action: () -> Void
     let onDelete: () -> Void
 
@@ -496,25 +497,60 @@ private struct FavoriteTile: View {
 
     @ViewBuilder
     private var faviconView: some View {
+        if let cached = cachedFaviconURL, cached.scheme == "data",
+           let emoji = Self.emojiFromSVGDataURI(cached.absoluteString) {
+            Text(emoji)
+                .font(.system(size: 14))
+                .frame(width: 18, height: 18)
+        } else if let cached = cachedFaviconURL, cached.scheme == "data",
+                  let nsImage = NSImage.fromDataURI(cached.absoluteString) {
+            Image(nsImage: nsImage)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 18, height: 18)
+        } else if let cached = cachedFaviconURL, cached.scheme != "data" {
+            AsyncImage(url: cached) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().scaledToFit().frame(width: 18, height: 18)
+                default:
+                    duckDuckGoFaviconView
+                }
+            }
+        } else {
+            duckDuckGoFaviconView
+        }
+    }
+
+    @ViewBuilder
+    private var duckDuckGoFaviconView: some View {
         if let url = faviconURL(for: urlString) {
             AsyncImage(url: url) { phase in
                 switch phase {
                 case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 18, height: 18)
+                    image.resizable().scaledToFit().frame(width: 18, height: 18)
                 default:
-                    Image(systemName: "globe")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.secondary)
+                    Image(systemName: "globe").font(.system(size: 14)).foregroundStyle(.secondary)
                 }
             }
         } else {
-            Image(systemName: "globe")
-                .font(.system(size: 14))
-                .foregroundStyle(.secondary)
+            Image(systemName: "globe").font(.system(size: 14)).foregroundStyle(.secondary)
         }
+    }
+
+    private static func emojiFromSVGDataURI(_ uri: String) -> String? {
+        guard uri.hasPrefix("data:image/svg+xml") else { return nil }
+        guard let commaRange = uri.range(of: ",") else { return nil }
+        var decoded = String(uri[commaRange.upperBound...])
+        while let next = decoded.removingPercentEncoding, next != decoded {
+            decoded = next
+        }
+        guard let openTag = decoded.range(of: "<text"),
+              let openRange = decoded.range(of: ">", range: openTag.upperBound..<decoded.endIndex),
+              let closeRange = decoded.range(of: "</text>") else { return nil }
+        let content = String(decoded[openRange.upperBound..<closeRange.lowerBound])
+        guard !content.isEmpty, content.unicodeScalars.allSatisfy({ $0.properties.isEmoji }) else { return nil }
+        return content
     }
 
     private func faviconURL(for raw: String) -> URL? {
