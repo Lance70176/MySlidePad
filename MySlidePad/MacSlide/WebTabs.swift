@@ -341,6 +341,7 @@ enum WebViewConfigurationFactory {
 
     static func configured() -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
+        configuration.applicationNameForUserAgent = "Version/18.3 Safari/605.1.15"
         installIMEGuard(into: configuration)
         return configuration
     }

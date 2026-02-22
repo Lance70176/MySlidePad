@@ -25,16 +25,22 @@ echo "==> Preparing DMG contents..."
 rm -rf "$DMG_DIR"
 mkdir -p "$DMG_DIR"
 cp -R "$ARCHIVE_PATH/Products/Applications/$APP_NAME" "$DMG_DIR/"
-ln -s /Applications "$DMG_DIR/Applications"
 
-echo "==> Creating DMG..."
+echo "==> Creating styled DMG..."
 rm -f "$DMG_PATH"
-hdiutil create \
-  -volname "$SCHEME" \
-  -srcfolder "$DMG_DIR" \
-  -ov \
-  -format UDZO \
-  "$DMG_PATH"
+
+create-dmg \
+  --volname "$SCHEME" \
+  --window-pos 200 120 \
+  --window-size 660 400 \
+  --icon-size 160 \
+  --text-size 14 \
+  --icon "$APP_NAME" 165 175 \
+  --app-drop-link 495 175 \
+  --hide-extension "$APP_NAME" \
+  --no-internet-enable \
+  "$DMG_PATH" \
+  "$DMG_DIR"
 
 echo "==> Cleaning up..."
 rm -rf "$DMG_DIR"
